@@ -1,6 +1,8 @@
 from llama_cpp import Llama
 from openai import OpenAI
 from loguru import logger
+import time
+import random
 from time import sleep
 
 GLOBAL_LLM = None
@@ -36,7 +38,7 @@ class LLM:
     def _is_rate_limit_error(self, e: Exception) -> bool:
         """Best-effort check for 429 / rate-limit errors across providers."""
         msg = str(e).lower()
-        return ("RateLimitError" in msg)
+        return ("ratelimiterror" in msg)
 
 
     def generate(self, messages: list[dict]) -> str:
