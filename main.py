@@ -63,8 +63,25 @@ def filter_corpus(corpus:list[dict], pattern:str) -> list[dict]:
 def get_arxiv_paper(query:str, debug:bool=False) -> list[ArxivPaper]:
     client = arxiv.Client(num_retries=10,delay_seconds=10)
     feed = feedparser.parse(f"https://rss.arxiv.org/atom/{query}")
-    if 'Feed error for query' in feed.feed.title:
-        raise Exception(f"Invalid ARXIV_QUERY: {query}.")
+    
+    # If parsing failed, log and gracefully return empty results.
+    if getattr(feed, "bozo", 0):
+        logger.warning(
+            "Feed parsing failed (bozo=1): %s",
+            getattr(feed, "bozo_exception", "unknown")
+        )
+        return []
+    
+    # Never assume title exists
+    feed_title = feed.feed.get("title", "")
+    if not feed_title:
+        logger.warning("Empty feed or missing title; gracefully return no papers.")
+        return []
+    
+    if "Feed error for query" in feed_title:
+        logger.warning("Arxiv returned feed error: %s", feed_title)
+        return []
+        
     if not debug:
         papers = []
         all_paper_ids = [i.id.removeprefix("oai:arXiv.org:") for i in feed.entries if i.arxiv_announce_type == 'new']
