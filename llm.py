@@ -38,7 +38,12 @@ class LLM:
     def _is_rate_limit_error(self, e: Exception) -> bool:
         """Best-effort check for 429 / rate-limit errors across providers."""
         msg = str(e).lower()
-        return ("ratelimiterror" in msg)
+        return (
+            "ratelimiterror" in msg
+            or "rate limit" in msg
+            or "429" in msg
+            or "too many requests" in msg
+        )
 
 
     def generate(self, messages: list[dict]) -> str:

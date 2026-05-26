@@ -29,6 +29,7 @@ from tempfile import mkstemp
 from paper import ArxivPaper
 from llm import set_global_llm
 import feedparser
+from time import sleep
 
 def get_zotero_corpus(id:str,key:str) -> list[dict]:
     zot = zotero.Zotero(id, 'user', key)
@@ -60,6 +61,21 @@ def filter_corpus(corpus:list[dict], pattern:str) -> list[dict]:
     return new_corpus
 
 
+def collect_arxiv_results_with_retry(client: arxiv.Client, search: arxiv.Search, batch_label: str) -> list:
+    max_batch_retries = 5
+    batch_retry_delay = 30
+    for attempt in range(max_batch_retries):
+        try:
+            return list(client.results(search))
+        except arxiv.HTTPError as exc:
+            if exc.status == 429 and attempt < max_batch_retries - 1:
+                wait = batch_retry_delay * (attempt + 1)
+                logger.warning(f"arXiv API 429 on {batch_label}, retry {attempt + 1}/{max_batch_retries} in {wait}s")
+                sleep(wait)
+            else:
+                raise
+
+
 def get_arxiv_paper(query:str, debug:bool=False) -> list[ArxivPaper]:
     client = arxiv.Client(num_retries=10,delay_seconds=10)
     feed = feedparser.parse(f"https://rss.arxiv.org/atom/{query}")
@@ -88,16 +104,19 @@ def get_arxiv_paper(query:str, debug:bool=False) -> list[ArxivPaper]:
         bar = tqdm(total=len(all_paper_ids),desc="Retrieving Arxiv papers")
         for i in range(0,len(all_paper_ids),20):
             search = arxiv.Search(id_list=all_paper_ids[i:i+20])
-            batch = [ArxivPaper(p) for p in client.results(search)]
+            raw_batch = collect_arxiv_results_with_retry(client, search, f"batch {i // 20}")
+            batch = [ArxivPaper(p) for p in raw_batch]
             bar.update(len(batch))
             papers.extend(batch)
+            if i + 20 < len(all_paper_ids):
+                sleep(3)
         bar.close()
 
     else:
         logger.debug("Retrieve 5 arxiv papers regardless of the date.")
         search = arxiv.Search(query='cat:cs.AI', sort_by=arxiv.SortCriterion.SubmittedDate)
         papers = []
-        for i in client.results(search):
+        for i in collect_arxiv_results_with_retry(client, search, "debug search"):
             papers.append(ArxivPaper(i))
             if len(papers) == 5:
                 break
@@ -214,4 +233,3 @@ if __name__ == '__main__':
     logger.info("Sending email...")
     send_email(args.sender, args.receiver, args.sender_password, args.smtp_server, args.smtp_port, html)
     logger.success("Email sent successfully! If you don't receive the email, please check the configuration and the junk box.")
-
